@@ -1,0 +1,13 @@
+
+## Step 5: Create Streamlit Config
+
+Create `.streamlit/config.toml`:
+
+```toml
+[server]
+port = 8501
+address = "0.0.0.0"
+
+[browser]
+serverAddress = "localhost"
+gatherUsageStats = false
