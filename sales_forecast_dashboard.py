@@ -1,21 +1,54 @@
-# sales_forecast_dashboard.py
+# sales_forecast_dashboard.py - Streamlit Cloud Compatible
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
-# Import your existing analysis functions (we'll include them directly for now)
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import mean_absolute_error, mean_squared_error
-import statsmodels.api as sm
-from statsmodels.tsa.stattools import adfuller
-from statsmodels.tsa.seasonal import seasonal_decompose
-from statsmodels.tsa.arima.model import ARIMA
-import scipy.optimize as optimize
+# Import matplotlib with Agg backend for Streamlit Cloud
+try:
+    import matplotlib
+    matplotlib.use('Agg')  # Use non-interactive backend
+    import matplotlib.pyplot as plt
+    plt.switch_backend('Agg')
+    MATPLOTLIB_AVAILABLE = True
+except ImportError as e:
+    st.error(f"Matplotlib import error: {e}")
+    MATPLOTLIB_AVAILABLE = False
+
+# Import seaborn with error handling
+try:
+    import seaborn as sns
+    SEABORN_AVAILABLE = True
+except ImportError:
+    SEABORN_AVAILABLE = False
+    st.warning("Seaborn not available - using basic styling")
+
+# Import ML libraries with error handling
+try:
+    from sklearn.preprocessing import MinMaxScaler
+    from sklearn.metrics import mean_absolute_error, mean_squared_error
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+    st.warning("Scikit-learn not available - some features disabled")
+
+try:
+    import statsmodels.api as sm
+    from statsmodels.tsa.stattools import adfuller
+    from statsmodels.tsa.seasonal import seasonal_decompose
+    from statsmodels.tsa.arima.model import ARIMA
+    STATSMODELS_AVAILABLE = True
+except ImportError:
+    STATSMODELS_AVAILABLE = False
+    st.warning("Statsmodels not available - ARIMA forecasting disabled")
+
+try:
+    import scipy.optimize as optimize
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
+    st.warning("SciPy not available - optimization features disabled")
 
 # Try to import optional packages
 try:
@@ -23,10 +56,14 @@ try:
     PMDARIMA_AVAILABLE = True
 except ImportError:
     PMDARIMA_AVAILABLE = False
+    st.warning("pmdarima not available - using simpler ARIMA implementation")
+
+from datetime import datetime, timedelta
 
 # Copy your existing task functions here
 def task1_preprocess_explore(df):
-    print("=== TASK 1: Data Preprocessing and Exploration ===")
+    if not MATPLOTLIB_AVAILABLE:
+        st.error("Matplotlib is not available. Charts will not be displayed.")
     
     # Convert to datetime and create copy
     df_clean = df.copy()
@@ -60,7 +97,9 @@ def task1_preprocess_explore(df):
     }
 
 def task2_forecasting_models(monthly_total_ts):
-    print("\n=== TASK 2: Time Series Forecasting Models ===")
+    if not STATSMODELS_AVAILABLE:
+        st.error("Statsmodels not available - cannot perform ARIMA forecasting")
+        return None
     
     if len(monthly_total_ts) < 6:
         st.warning("Insufficient data for proper forecasting. Need at least 6 months of data.")
@@ -86,8 +125,10 @@ def task2_forecasting_models(monthly_total_ts):
                                    suppress_warnings=True, error_action='ignore',
                                    max_p=3, max_q=3, max_d=2)
             order = auto_model.order
+            st.info(f"Auto ARIMA selected parameters: {order}")
         else:
             order = (1, 1, 1)
+            st.info("Using default ARIMA parameters: (1, 1, 1)")
         
         arima_model = ARIMA(train_data['Volume'], order=order)
         arima_fit = arima_model.fit()
@@ -96,6 +137,7 @@ def task2_forecasting_models(monthly_total_ts):
         
     except Exception as e:
         st.error(f"ARIMA modeling failed: {e}")
+        st.info("Using simple average as fallback")
         arima_forecast = np.full(len(test_data), train_data['Volume'].mean())
         arima_forecast_index = test_data['Date']
         arima_fit = None
@@ -104,16 +146,23 @@ def task2_forecasting_models(monthly_total_ts):
     sma_forecast = np.full(len(test_data), train_data['Volume'].rolling(window=3).mean().iloc[-1])
     
     # Model Evaluation
-    arima_mae = mean_absolute_error(test_data['Volume'], arima_forecast)
-    arima_rmse = np.sqrt(mean_squared_error(test_data['Volume'], arima_forecast))
-    arima_mape = np.mean(np.abs((test_data['Volume'] - arima_forecast) / test_data['Volume'])) * 100
-    
-    sma_mae = mean_absolute_error(test_data['Volume'], sma_forecast)
-    sma_rmse = np.sqrt(mean_squared_error(test_data['Volume'], sma_forecast))
-    sma_mape = np.mean(np.abs((test_data['Volume'] - sma_forecast) / test_data['Volume'])) * 100
-    
-    # Determine best model
-    best_model = 'ARIMA' if arima_mape < sma_mape else 'SMA'
+    if SKLEARN_AVAILABLE:
+        arima_mae = mean_absolute_error(test_data['Volume'], arima_forecast)
+        arima_rmse = np.sqrt(mean_squared_error(test_data['Volume'], arima_forecast))
+        arima_mape = np.mean(np.abs((test_data['Volume'] - arima_forecast) / test_data['Volume'])) * 100
+        
+        sma_mae = mean_absolute_error(test_data['Volume'], sma_forecast)
+        sma_rmse = np.sqrt(mean_squared_error(test_data['Volume'], sma_forecast))
+        sma_mape = np.mean(np.abs((test_data['Volume'] - sma_forecast) / test_data['Volume'])) * 100
+        
+        # Determine best model
+        best_model = 'ARIMA' if arima_mape < sma_mape else 'SMA'
+        
+        st.success(f"Model Evaluation Complete - Best Model: {best_model}")
+        st.info(f"ARIMA MAPE: {arima_mape:.1f}%, SMA MAPE: {sma_mape:.1f}%")
+    else:
+        best_model = 'ARIMA'
+        st.info("Using ARIMA model (scikit-learn not available for evaluation)")
     
     return {
         'arima_model': arima_fit,
@@ -122,16 +171,10 @@ def task2_forecasting_models(monthly_total_ts):
         'arima_forecast': arima_forecast,
         'sma_forecast': sma_forecast,
         'train_data': train_data,
-        'full_data': data,
-        'metrics': {
-            'arima_mape': arima_mape,
-            'sma_mape': sma_mape
-        }
+        'full_data': data
     }
 
 def task3_forecast_future(monthly_total_ts, model_results, forecast_months=12):
-    print("\n=== TASK 3: Future Sales Forecasting ===")
-    
     if model_results is None:
         st.error("No model results available. Cannot generate future forecast.")
         return None
@@ -172,7 +215,9 @@ def task3_forecast_future(monthly_total_ts, model_results, forecast_months=12):
     }
 
 def task4_optimize_strategy(monthly_sales, future_forecast_results):
-    print("\n=== TASK 4: Product Mix Optimization ===")
+    if not SCIPY_AVAILABLE:
+        st.error("SciPy not available - cannot perform optimization")
+        return None
     
     # Prepare product data
     product_data = monthly_sales.pivot_table(
@@ -191,7 +236,7 @@ def task4_optimize_strategy(monthly_sales, future_forecast_results):
     })
     
     # Define optimization constraints
-    MAX_TOTAL_CAPACITY = 950000
+    MAX_TOTAL_CAPACITY = 3600000 
     MIN_PRODUCT_ALLOCATION = 0.10
     LAYER_PROFIT_MARGIN = 0.25
     SASSO_PROFIT_MARGIN = 0.35
@@ -219,25 +264,33 @@ def task4_optimize_strategy(monthly_sales, future_forecast_results):
     
     # Run optimization
     initial_guess = [0.5, 0.5]
-    result = optimize.minimize(objective_function, initial_guess, 
-                     method='SLSQP', bounds=bounds, constraints=constraints)
-    
-    optimal_allocation = result.x
-    optimal_profit = -result.fun
-    
-    # Calculate optimal quantities
-    layer_quantity = optimal_allocation[0] * MAX_TOTAL_CAPACITY
-    sasso_quantity = optimal_allocation[1] * MAX_TOTAL_CAPACITY
-    total_used = layer_quantity + sasso_quantity
-    capacity_utilization = (total_used / MAX_TOTAL_CAPACITY) * 100
-    
-    return {
-        'optimal_allocation': optimal_allocation,
-        'optimal_quantities': [layer_quantity, sasso_quantity],
-        'expected_profit': optimal_profit,
-        'capacity_utilization': capacity_utilization,
-        'product_metrics': product_metrics
-    }
+    try:
+        result = optimize.minimize(objective_function, initial_guess, 
+                         method='SLSQP', bounds=bounds, constraints=constraints)
+        
+        if result.success:
+            optimal_allocation = result.x
+            optimal_profit = -result.fun
+            
+            # Calculate optimal quantities
+            layer_quantity = optimal_allocation[0] * MAX_TOTAL_CAPACITY
+            sasso_quantity = optimal_allocation[1] * MAX_TOTAL_CAPACITY
+            total_used = layer_quantity + sasso_quantity
+            capacity_utilization = (total_used / MAX_TOTAL_CAPACITY) * 100
+            
+            return {
+                'optimal_allocation': optimal_allocation,
+                'optimal_quantities': [layer_quantity, sasso_quantity],
+                'expected_profit': optimal_profit,
+                'capacity_utilization': capacity_utilization,
+                'product_metrics': product_metrics
+            }
+        else:
+            st.error("Optimization failed to converge")
+            return None
+    except Exception as e:
+        st.error(f"Optimization error: {e}")
+        return None
 
 # Streamlit App Configuration
 st.set_page_config(
@@ -275,6 +328,19 @@ st.markdown("""
 def main():
     # Header
     st.markdown('<h1 class="main-header">🚀 Sales Forecasting & Optimization Dashboard</h1>', unsafe_allow_html=True)
+    
+    # Display dependency status
+    with st.expander("🔧 Dependency Status", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.write(f"📊 Matplotlib: {'✅ Available' if MATPLOTLIB_AVAILABLE else '❌ Not Available'}")
+            st.write(f"📈 Statsmodels: {'✅ Available' if STATSMODELS_AVAILABLE else '❌ Not Available'}")
+        with col2:
+            st.write(f"🤖 Scikit-learn: {'✅ Available' if SKLEARN_AVAILABLE else '❌ Not Available'}")
+            st.write(f"⚙️ SciPy: {'✅ Available' if SCIPY_AVAILABLE else '❌ Not Available'}")
+        with col3:
+            st.write(f"🔮 pmdarima: {'✅ Available' if PMDARIMA_AVAILABLE else '❌ Not Available'}")
+            st.write(f"🎨 Seaborn: {'✅ Available' if SEABORN_AVAILABLE else '❌ Not Available'}")
     
     # Sidebar for file upload and controls
     with st.sidebar:
@@ -344,29 +410,38 @@ def main():
                     st.metric("Data Period", date_range)
                 
                 # Sales Trends Visualization
-                st.subheader("Sales Trends Over Time")
+                if MATPLOTLIB_AVAILABLE:
+                    st.subheader("Sales Trends Over Time")
+                    
+                    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+                    
+                    # Monthly trend
+                    monthly_data = aggregated_data['monthly_total_ts']
+                    ax1.plot(monthly_data.index, monthly_data.values, marker='o', linewidth=2, color='#1f77b4')
+                    ax1.set_title('Monthly Sales Trend', fontsize=14, fontweight='bold')
+                    ax1.set_xlabel('Date')
+                    ax1.set_ylabel('Sales Volume')
+                    ax1.grid(True, alpha=0.3)
+                    ax1.tick_params(axis='x', rotation=45)
+                    
+                    # Product distribution
+                    product_totals = df.groupby('Product Type')['Volume'].sum()
+                    colors = ['#ff9999', '#66b3ff']
+                    ax2.pie(product_totals.values, labels=product_totals.index, autopct='%1.1f%%', 
+                           startangle=90, colors=colors)
+                    ax2.set_title('Sales Distribution by Product Type', fontsize=14, fontweight='bold')
+                    
+                    st.pyplot(fig)
+                else:
+                    # Fallback: Use Streamlit native charts
+                    st.subheader("Sales Trends (Streamlit Native)")
+                    monthly_data = aggregated_data['monthly_total_ts']
+                    st.line_chart(monthly_data)
+                    
+                    product_totals = df.groupby('Product Type')['Volume'].sum()
+                    st.bar_chart(product_totals)
                 
-                fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
-                
-                # Monthly trend
-                monthly_data = aggregated_data['monthly_total_ts']
-                ax1.plot(monthly_data.index, monthly_data.values, marker='o', linewidth=2, color='#1f77b4')
-                ax1.set_title('Monthly Sales Trend', fontsize=14, fontweight='bold')
-                ax1.set_xlabel('Date')
-                ax1.set_ylabel('Sales Volume')
-                ax1.grid(True, alpha=0.3)
-                ax1.tick_params(axis='x', rotation=45)
-                
-                # Product distribution
-                product_totals = df.groupby('Product Type')['Volume'].sum()
-                colors = ['#ff9999', '#66b3ff']
-                ax2.pie(product_totals.values, labels=product_totals.index, autopct='%1.1f%%', 
-                       startangle=90, colors=colors)
-                ax2.set_title('Sales Distribution by Product Type', fontsize=14, fontweight='bold')
-                
-                st.pyplot(fig)
-                
-                if run_forecasting:
+                if run_forecasting and STATSMODELS_AVAILABLE:
                     # Task 2 & 3: Forecasting
                     status_text.text("🔮 Task 2 & 3: Running Sales Forecasting...")
                     model_results = task2_forecasting_models(aggregated_data['monthly_total_ts'])
@@ -413,34 +488,35 @@ def main():
                             }), use_container_width=True)
                         
                         # Forecast Visualization
-                        st.subheader("Forecast Visualization")
-                        fig, ax = plt.subplots(figsize=(12, 6))
-                        
-                        # Historical data
-                        historical_data = aggregated_data['monthly_total_ts']
-                        ax.plot(historical_data.index, historical_data.values, 
-                               label='Historical', color='blue', linewidth=2)
-                        
-                        # Forecast data
-                        ax.plot(future_forecast['future_dates'], future_forecast['future_forecast'], 
-                               label='Forecast', color='red', linestyle='--', linewidth=2)
-                        
-                        # Confidence interval
-                        ax.fill_between(future_forecast['future_dates'], 
-                                      future_forecast['confidence_lower'],
-                                      future_forecast['confidence_upper'],
-                                      alpha=0.3, color='red', label='95% Confidence Interval')
-                        
-                        ax.set_title('Sales Forecast with Confidence Intervals', fontsize=14, fontweight='bold')
-                        ax.set_xlabel('Date')
-                        ax.set_ylabel('Sales Volume')
-                        ax.legend()
-                        ax.grid(True, alpha=0.3)
-                        ax.tick_params(axis='x', rotation=45)
-                        
-                        st.pyplot(fig)
+                        if MATPLOTLIB_AVAILABLE:
+                            st.subheader("Forecast Visualization")
+                            fig, ax = plt.subplots(figsize=(12, 6))
+                            
+                            # Historical data
+                            historical_data = aggregated_data['monthly_total_ts']
+                            ax.plot(historical_data.index, historical_data.values, 
+                                   label='Historical', color='blue', linewidth=2)
+                            
+                            # Forecast data
+                            ax.plot(future_forecast['future_dates'], future_forecast['future_forecast'], 
+                                   label='Forecast', color='red', linestyle='--', linewidth=2)
+                            
+                            # Confidence interval
+                            ax.fill_between(future_forecast['future_dates'], 
+                                          future_forecast['confidence_lower'],
+                                          future_forecast['confidence_upper'],
+                                          alpha=0.3, color='red', label='95% Confidence Interval')
+                            
+                            ax.set_title('Sales Forecast with Confidence Intervals', fontsize=14, fontweight='bold')
+                            ax.set_xlabel('Date')
+                            ax.set_ylabel('Sales Volume')
+                            ax.legend()
+                            ax.grid(True, alpha=0.3)
+                            ax.tick_params(axis='x', rotation=45)
+                            
+                            st.pyplot(fig)
                 
-                if run_optimization and future_forecast is not None:
+                if run_optimization and future_forecast is not None and SCIPY_AVAILABLE:
                     # Task 4: Optimization
                     status_text.text("⚖️ Task 4: Optimizing Product Mix...")
                     optimization_results = task4_optimize_strategy(
@@ -450,62 +526,65 @@ def main():
                     progress_bar.progress(85)
                     
                     # Display Optimization Results
-                    st.header("⚖️ Product Mix Optimization")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.subheader("Optimal Allocation")
-                        allocation_df = pd.DataFrame({
-                            'Product': ['Layer', 'Sasso'],
-                            'Allocation %': [f"{optimization_results['optimal_allocation'][0]:.1%}", 
-                                           f"{optimization_results['optimal_allocation'][1]:.1%}"],
-                            'Quantity': optimization_results['optimal_quantities']
-                        })
-                        st.dataframe(allocation_df, use_container_width=True)
+                    if optimization_results is not None:
+                        st.header("⚖️ Product Mix Optimization")
                         
-                        st.metric("Expected Monthly Profit", f"${optimization_results['expected_profit']:,.2f}")
-                        st.metric("Capacity Utilization", f"{optimization_results['capacity_utilization']:.1f}%")
-                    
-                    with col2:
-                        st.subheader("Production Plan")
-                        fig, ax = plt.subplots(figsize=(8, 6))
-                        products = ['Layer', 'Sasso']
-                        quantities = optimization_results['optimal_quantities']
+                        col1, col2 = st.columns(2)
                         
-                        bars = ax.bar(products, quantities, color=['skyblue', 'lightcoral'])
-                        ax.set_ylabel('Production Quantity')
-                        ax.set_title('Optimal Production Quantities', fontweight='bold')
-                        ax.grid(True, alpha=0.3)
+                        with col1:
+                            st.subheader("Optimal Allocation")
+                            allocation_df = pd.DataFrame({
+                                'Product': ['Layer', 'Sasso'],
+                                'Allocation %': [f"{optimization_results['optimal_allocation'][0]:.1%}", 
+                                               f"{optimization_results['optimal_allocation'][1]:.1%}"],
+                                'Quantity': optimization_results['optimal_quantities']
+                            })
+                            st.dataframe(allocation_df, use_container_width=True)
+                            
+                            st.metric("Expected Monthly Profit", f"${optimization_results['expected_profit']:,.2f}")
+                            st.metric("Capacity Utilization", f"{optimization_results['capacity_utilization']:.1f}%")
                         
-                        for bar, quantity in zip(bars, quantities):
-                            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1000,
-                                   f'{quantity:,.0f}', ha='center', va='bottom', fontweight='bold')
+                        with col2:
+                            if MATPLOTLIB_AVAILABLE:
+                                st.subheader("Production Plan")
+                                fig, ax = plt.subplots(figsize=(8, 6))
+                                products = ['Layer', 'Sasso']
+                                quantities = optimization_results['optimal_quantities']
+                                
+                                bars = ax.bar(products, quantities, color=['skyblue', 'lightcoral'])
+                                ax.set_ylabel('Production Quantity')
+                                ax.set_title('Optimal Production Quantities', fontweight='bold')
+                                ax.grid(True, alpha=0.3)
+                                
+                                for bar, quantity in zip(bars, quantities):
+                                    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1000,
+                                           f'{quantity:,.0f}', ha='center', va='bottom', fontweight='bold')
+                                
+                                st.pyplot(fig)
                         
-                        st.pyplot(fig)
-                    
-                    # Risk-Return Profile
-                    st.subheader("Product Risk-Return Profile")
-                    fig, ax = plt.subplots(figsize=(10, 6))
-                    
-                    product_metrics = optimization_results['product_metrics']
-                    ax.scatter(product_metrics['Avg_Monthly_Sales'], 
-                              product_metrics['CV'],
-                              s=200, alpha=0.6)
-                    
-                    for product in product_metrics.index:
-                        ax.annotate(product, 
-                                  (product_metrics.loc[product, 'Avg_Monthly_Sales'],
-                                   product_metrics.loc[product, 'CV']),
-                                  xytext=(5, 5), textcoords='offset points',
-                                  fontweight='bold')
-                    
-                    ax.set_xlabel('Average Monthly Sales (Volume)')
-                    ax.set_ylabel('Coefficient of Variation (Risk)')
-                    ax.set_title('Product Risk-Return Profile', fontweight='bold')
-                    ax.grid(True, alpha=0.3)
-                    
-                    st.pyplot(fig)
+                        # Risk-Return Profile
+                        if MATPLOTLIB_AVAILABLE:
+                            st.subheader("Product Risk-Return Profile")
+                            fig, ax = plt.subplots(figsize=(10, 6))
+                            
+                            product_metrics = optimization_results['product_metrics']
+                            ax.scatter(product_metrics['Avg_Monthly_Sales'], 
+                                      product_metrics['CV'],
+                                      s=200, alpha=0.6)
+                            
+                            for product in product_metrics.index:
+                                ax.annotate(product, 
+                                          (product_metrics.loc[product, 'Avg_Monthly_Sales'],
+                                           product_metrics.loc[product, 'CV']),
+                                          xytext=(5, 5), textcoords='offset points',
+                                          fontweight='bold')
+                            
+                            ax.set_xlabel('Average Monthly Sales (Volume)')
+                            ax.set_ylabel('Coefficient of Variation (Risk)')
+                            ax.set_title('Product Risk-Return Profile', fontweight='bold')
+                            ax.grid(True, alpha=0.3)
+                            
+                            st.pyplot(fig)
                 
                 # Complete analysis
                 progress_bar.progress(100)
