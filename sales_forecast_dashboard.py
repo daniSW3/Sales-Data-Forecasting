@@ -1,4 +1,3 @@
-# sales_forecast_dashboard.py - Streamlit Cloud Compatible (No pmdarima)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -52,7 +51,6 @@ except ImportError:
 
 from datetime import datetime, timedelta
 
-# Copy your existing task functions here
 def task1_preprocess_explore(df):
     if not MATPLOTLIB_AVAILABLE:
         st.error("Matplotlib is not available. Charts will not be displayed.")
@@ -416,35 +414,42 @@ def main():
                 
                 # Sales Trends Visualization
                 if MATPLOTLIB_AVAILABLE:
-                    st.subheader("Sales Trends Over Time")
+                    st.subheader("Monthly Sales Trend")
                     
-                    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+                    fig, ax = plt.subplots(figsize=(12, 6))
                     
                     # Monthly trend
                     monthly_data = aggregated_data['monthly_total_ts']
-                    ax1.plot(monthly_data.index, monthly_data.values, marker='o', linewidth=2, color='#1f77b4')
-                    ax1.set_title('Monthly Sales Trend', fontsize=14, fontweight='bold')
-                    ax1.set_xlabel('Date')
-                    ax1.set_ylabel('Sales Volume')
-                    ax1.grid(True, alpha=0.3)
-                    ax1.tick_params(axis='x', rotation=45)
+                    ax.plot(monthly_data.index, monthly_data.values, marker='o', linewidth=2, color='#1f77b4', label='Monthly Sales')
+                    ax.set_title('Monthly Sales Trend', fontsize=14, fontweight='bold')
+                    ax.set_xlabel('Date')
+                    ax.set_ylabel('Sales Volume (Units)', fontsize=12)
+                    ax.grid(True, alpha=0.3)
+                    ax.tick_params(axis='x', rotation=45)
+                    ax.legend()
                     
-                    # Product distribution
-                    product_totals = df.groupby('Product Type')['Volume'].sum()
-                    colors = ['#ff9999', '#66b3ff']
-                    ax2.pie(product_totals.values, labels=product_totals.index, autopct='%1.1f%%', 
-                           startangle=90, colors=colors)
-                    ax2.set_title('Sales Distribution by Product Type', fontsize=14, fontweight='bold')
+                    # Add data labels for key points (max, min, last)
+                    max_idx = monthly_data.idxmax()
+                    min_idx = monthly_data.idxmin()
+                    last_idx = monthly_data.index[-1]
+                    
+                    for idx in [max_idx, min_idx, last_idx]:
+                        volume = monthly_data[idx]
+                        ax.annotate(f'{volume:,.0f}', 
+                                   xy=(idx, volume), 
+                                   xytext=(0, 10), 
+                                   textcoords='offset points', 
+                                   ha='center', 
+                                   fontsize=10, 
+                                   bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.8))
                     
                     st.pyplot(fig)
                 else:
                     # Fallback: Use Streamlit native charts
-                    st.subheader("Sales Trends (Streamlit Native)")
+                    st.subheader("Monthly Sales Trend (Streamlit Native)")
                     monthly_data = aggregated_data['monthly_total_ts']
-                    st.line_chart(monthly_data)
-                    
-                    product_totals = df.groupby('Product Type')['Volume'].sum()
-                    st.bar_chart(product_totals)
+                    chart_data = pd.DataFrame({'Sales Volume': monthly_data}, index=monthly_data.index)
+                    st.line_chart(chart_data)
                 
                 if run_forecasting and STATSMODELS_AVAILABLE:
                     # Task 2 & 3: Forecasting
@@ -494,30 +499,52 @@ def main():
                         
                         # Forecast Visualization
                         if MATPLOTLIB_AVAILABLE:
-                            st.subheader("Forecast Visualization")
+                            st.subheader("Sales Forecast with Confidence Intervals")
                             fig, ax = plt.subplots(figsize=(12, 6))
                             
                             # Historical data
                             historical_data = aggregated_data['monthly_total_ts']
                             ax.plot(historical_data.index, historical_data.values, 
-                                   label='Historical', color='blue', linewidth=2)
+                                   label='Historical Sales', color='#1f77b4', linewidth=2)
                             
                             # Forecast data
                             ax.plot(future_forecast['future_dates'], future_forecast['future_forecast'], 
-                                   label='Forecast', color='red', linestyle='--', linewidth=2)
+                                   label='Forecasted Sales', color='#ff3333', linestyle='--', linewidth=2)
                             
                             # Confidence interval
                             ax.fill_between(future_forecast['future_dates'], 
-                                          future_forecast['confidence_lower'],
-                                          future_forecast['confidence_upper'],
-                                          alpha=0.3, color='red', label='95% Confidence Interval')
+                                           future_forecast['confidence_lower'],
+                                           future_forecast['confidence_upper'],
+                                           alpha=0.3, color='#ff9999', label='95% Confidence Interval')
                             
                             ax.set_title('Sales Forecast with Confidence Intervals', fontsize=14, fontweight='bold')
                             ax.set_xlabel('Date')
-                            ax.set_ylabel('Sales Volume')
+                            ax.set_ylabel('Sales Volume (Units)', fontsize=12)
                             ax.legend()
                             ax.grid(True, alpha=0.3)
                             ax.tick_params(axis='x', rotation=45)
+                            
+                            # Add data labels for first and last forecast points
+                            first_forecast = future_forecast['future_forecast'][0]
+                            last_forecast = future_forecast['future_forecast'][-1]
+                            first_date = future_forecast['future_dates'][0]
+                            last_date = future_forecast['future_dates'][-1]
+                            
+                            ax.annotate(f'{first_forecast:,.0f}', 
+                                       xy=(first_date, first_forecast), 
+                                       xytext=(0, 10), 
+                                       textcoords='offset points', 
+                                       ha='center', 
+                                       fontsize=10, 
+                                       bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.8))
+                            
+                            ax.annotate(f'{last_forecast:,.0f}', 
+                                       xy=(last_date, last_forecast), 
+                                       xytext=(0, 10), 
+                                       textcoords='offset points', 
+                                       ha='center', 
+                                       fontsize=10, 
+                                       bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.8))
                             
                             st.pyplot(fig)
                 
